@@ -2,8 +2,6 @@
 #define BASE_BUFFER_H
 
 #include "base_core.h"
-#include <stdio.h>
-#include <sys/mman.h>
 
 //////////////////////////////
 // Buffer

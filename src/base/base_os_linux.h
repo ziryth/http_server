@@ -39,19 +39,17 @@ i32 os_write(i32 sock_fd, Buffer buffer);
 
 //////////////////////////////
 //  IO
-#define os_io_read_barrier(p) \
-    __atomic_load_n((p), __ATOMIC_ACQUIRE)
 
-#define os_io_write_barrier(p, v) \
-    __atomic_store_n((p), (v), __ATOMIC_RELEASE)
+#define os_io_read_barrier(p) __atomic_load_n((p), __ATOMIC_ACQUIRE)
+#define os_io_write_barrier(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
 
 i32 os_io_uring_setup(u32 entries, struct io_uring_params *p);
 i32 os_io_uring_enter(i32 ring_fd, u32 to_submit, u32 min_complete, u32 flags);
 
-// i32 os_io_setup_uring(void);
-i32 os_io_read_from_cq();
-i32 os_io_submit_to_sq();
+// i32 os_io_read_from_cq();
+// i32 os_io_submit_to_sq();
 
 // io_uring_queue_init(QUEUE_DEPTH, &ring, 0);
 // io_uring_queue_exit(&ring);
+
 #endif // BASE_OS_LINUX_H
