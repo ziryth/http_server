@@ -1,4 +1,5 @@
 #include "base/base_inc.h"
+#include "base/base_memory.h"
 #include "base/base_os_linux.h"
 #include <linux/io_uring.h>
 #include <stdio.h>
@@ -8,6 +9,12 @@
 
 #define QUEUE_DEPTH 1
 #define BLOCK_SZ 1024
+
+enum EventType {
+    EventType_Accept,
+    EvenType_Read,
+    EvenType_Write,
+};
 
 struct IOUringContext {
     i32 ring_fd;
@@ -22,6 +29,11 @@ struct IOUringContext {
     struct io_uring_cqe *cqes;
 
     off_t offset;
+};
+
+struct request {
+    enum EventType event_type;
+    u32 client_socket;
 };
 
 i32 setup_io_uring(struct IOUringContext *ring) {
@@ -120,33 +132,35 @@ i32 io_uring_wait_cqe(struct IOUringContext *ring, struct io_uring_cqe **cqe) {
     return result;
 }
 
-i32 submit_read_request(struct IOUringContext *ring, char *buff) {
-    unsigned index, tail;
+struct io_uring_sqe *io_uring_get_sqe(struct IOUringContext *ring, u32 *tail_out) {
+    u32 tail = os_io_read_barrier(ring->sring_tail);
+    u32 index = tail & *ring->sring_mask;
 
-    /* Add our submission queue entry to the tail of the SQE ring buffer */
-    tail = *ring->sring_tail;
-    index = tail & *ring->sring_mask;
     struct io_uring_sqe *sqe = &ring->sqes[index];
+    *tail_out = tail;
 
-    sqe->opcode = IORING_OP_READ;
+    return sqe;
+}
+
+void io_uring_prep_sqe(struct io_uring_sqe *sqe, u32 opcode) {
+    memset(sqe, 0, sizeof(*sqe));
+    sqe->opcode = opcode;
+}
+
+i32 submit_read(struct IOUringContext *ring, char *buff) {
+    u32 tail;
+
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring, &tail);
+
+    io_uring_prep_sqe(sqe, IORING_OP_READ);
+
     sqe->fd = 0;
     sqe->addr = (unsigned long)buff;
     sqe->len = 256;
-
     sqe->off = -1;
 
-    ring->sring_array[index] = index;
-    tail++;
+    os_io_write_barrier(ring->sring_tail, tail + 1);
 
-    /* Update the tail */
-    os_io_write_barrier(ring->sring_tail, tail);
-
-    /*
-     * Tell the kernel we have submitted events with the io_uring_enter()
-     * system call. We also pass in the IORING_ENTER_GETEVENTS flag which
-     * causes the io_uring_enter() call to wait until min_complete
-     * (the 3rd param) events complete.
-     * */
     int ret = os_io_uring_enter(ring->ring_fd, 1, 0, 0);
 
     if (ret < 0) {
@@ -157,11 +171,53 @@ i32 submit_read_request(struct IOUringContext *ring, char *buff) {
     return ret;
 }
 
-void entrypoint(i32 server_fd) {
+void submit_accept(struct IOUringContext *ring, u32 server_fd, SockAddrIPv4 *client_addr, u64 *client_addr_len) {
+    u32 tail;
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring, &tail);
+
+    io_uring_prep_sqe(sqe, IORING_OP_ACCEPT);
+
+    sqe->fd = server_fd;
+    sqe->addr = (u64)client_addr;
+    sqe->addr2 = (u64)client_addr_len;
+    // sqe->user_data;
+
+    os_io_write_barrier(ring->sring_tail, tail + 1);
+
+    int ret = os_io_uring_enter(ring->ring_fd, 1, 0, 0);
+
+    if (ret < 0) {
+        perror("io_uring_enter");
+        return;
+    }
+}
+
+i32 setup_server_socket(u32 port, u32 backlog) {
+    i32 server_fd = os_socket_ipv4();
+    if (server_fd < 0) {
+        printf("ERROR - socket failed: %d\n", server_fd);
+        return 1;
+    }
+
+    i32 bind_result = os_bind_ipv4(server_fd, port);
+    if (bind_result < 0) {
+        printf("ERROR - bind failed: %d\n", bind_result);
+        return 1;
+    }
+
+    i32 listen_result = os_listen(server_fd, backlog);
+    if (listen_result < 0) {
+        printf("ERROR - listen failed: %d\n", listen_result);
+        return 1;
+    }
+
+    return server_fd;
+}
+
+void entrypoint(Arena *arena, i32 server_fd) {
     struct io_uring_cqe *cqe;
     struct IOUringContext ring;
 
-    // setup io_uring here..
     i32 result = setup_io_uring(&ring);
 
     // server loop...
@@ -169,6 +225,8 @@ void entrypoint(i32 server_fd) {
         i32 result = io_uring_wait_cqe(&ring, &cqe);
 
         // handle accept, read, write
+        // We need to bookkeep some kind of struct that manages
+        // the lifetime of a request..
     }
 }
 
@@ -185,36 +243,19 @@ i32 main(void) {
     char buff[256];
     memset(buff, 0, 256);
 
-    submit_read_request(&ring, buff);
+    submit_read(&ring, buff);
 
     result = io_uring_wait_cqe(&ring, &cqe);
 
-    sleep(2);
     printf("Buffer contains: %s\n", buff);
 
-    // printf("socket\n");
-    // i32 server_fd = os_socket_ipv4();
-    // if (server_fd < 0) {
-    //     printf("socket failed: %d\n", server_fd);
-    //     return 1;
-    // }
-    // printf("server_fd: %d\n", server_fd);
+    // Arena *arena = arena_alloc(1024 * 1024);
     //
-    // printf("bind\n");
-    // i32 bind_result = os_bind_ipv4(server_fd, 8082);
-    // if (bind_result < 0) {
-    //     printf("bind failed: %d\n", bind_result);
-    //     return 1;
-    // }
+    // u32 port = 8080;
+    // u32 backlog = 3;
+    // i32 server_fd = setup_server_socket(port, backlog);
     //
-    // printf("listen\n");
-    // i32 listen_result = os_listen(server_fd, 3);
-    // if (listen_result < 0) {
-    //     printf("listen failed: %d\n", listen_result);
-    //     return 1;
-    // }
-    //
-    // printf("Listening on port 8082...\n");
+    // // entrypoint(arena, server_fd);
     //
     // printf("accept\n");
     // i32 client_fd = os_accept(server_fd);
