@@ -48,6 +48,12 @@ i32 os_write(i32 sock_fd, Buffer buffer) {
     return result;
 }
 
+i32 os_close(i32 fd) {
+    i32 result = syscall1(SYS_CLOSE, fd);
+
+    return result;
+}
+
 //////////////////////////////
 //  IO
 

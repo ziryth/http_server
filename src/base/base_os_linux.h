@@ -8,6 +8,7 @@
 #include "linux/io_uring.h"
 
 #define SYS_WRITE 1
+#define SYS_CLOSE 3
 #define SYS_SOCKET 41
 #define SYS_ACCEPT 43
 #define SYS_BIND 49
@@ -36,6 +37,7 @@ i32 os_bind_ipv4(u32 sock_fd, u16 port);
 i32 os_listen(u32 sock_fd, u32 backlog);
 i32 os_accept(u32 sock_fd);
 i32 os_write(i32 sock_fd, Buffer buffer);
+i32 os_close(i32 fd);
 
 //////////////////////////////
 //  IO

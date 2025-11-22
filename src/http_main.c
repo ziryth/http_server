@@ -8,12 +8,12 @@
 #include <unistd.h>
 
 #define QUEUE_DEPTH 1
-#define BLOCK_SZ 1024
+#define REQUEST_BUFFER_SIZE 8192
 
 enum EventType {
     EventType_Accept,
-    EvenType_Read,
-    EvenType_Write,
+    EventType_Read,
+    EventType_Write,
 };
 
 struct IOUringContext {
@@ -31,9 +31,10 @@ struct IOUringContext {
     off_t offset;
 };
 
-struct request {
+struct Request {
     enum EventType event_type;
     u32 client_socket;
+    u8 buffer[REQUEST_BUFFER_SIZE];
 };
 
 i32 setup_io_uring(struct IOUringContext *ring) {
@@ -147,17 +148,18 @@ void io_uring_prep_sqe(struct io_uring_sqe *sqe, u32 opcode) {
     sqe->opcode = opcode;
 }
 
-i32 submit_read(struct IOUringContext *ring, char *buff) {
+i32 submit_read(struct IOUringContext *ring, struct Request *request) {
     u32 tail;
 
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring, &tail);
 
     io_uring_prep_sqe(sqe, IORING_OP_READ);
 
-    sqe->fd = 0;
-    sqe->addr = (unsigned long)buff;
-    sqe->len = 256;
+    sqe->fd = request->client_socket;
+    sqe->addr = (unsigned long)request->buffer;
+    sqe->len = REQUEST_BUFFER_SIZE;
     sqe->off = -1;
+    sqe->user_data = (u64)request;
 
     os_io_write_barrier(ring->sring_tail, tail + 1);
 
@@ -171,16 +173,47 @@ i32 submit_read(struct IOUringContext *ring, char *buff) {
     return ret;
 }
 
-void submit_accept(struct IOUringContext *ring, u32 server_fd, SockAddrIPv4 *client_addr, u64 *client_addr_len) {
+i32 submit_write(struct IOUringContext *ring, struct Request *request) {
+    u32 tail;
+
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring, &tail);
+
+    io_uring_prep_sqe(sqe, IORING_OP_WRITE);
+
+    sqe->fd = request->client_socket;
+    sqe->addr = (unsigned long)request->buffer;
+    sqe->len = REQUEST_BUFFER_SIZE;
+    sqe->off = -1;
+    sqe->user_data = (u64)request;
+
+    os_io_write_barrier(ring->sring_tail, tail + 1);
+
+    int ret = os_io_uring_enter(ring->ring_fd, 1, 0, 0);
+
+    if (ret < 0) {
+        perror("io_uring_enter");
+        return -1;
+    }
+
+    return ret;
+}
+
+void submit_accept(Arena *arena,
+                   struct IOUringContext *ring,
+                   u32 server_fd,
+                   SockAddrIPv4 *client_addr,
+                   u64 *client_addr_len) {
     u32 tail;
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring, &tail);
+    struct Request *request = arena_push(arena, sizeof(struct Request));
+    request->event_type = EventType_Accept;
 
     io_uring_prep_sqe(sqe, IORING_OP_ACCEPT);
 
     sqe->fd = server_fd;
     sqe->addr = (u64)client_addr;
     sqe->addr2 = (u64)client_addr_len;
-    // sqe->user_data;
+    sqe->user_data = (u64)request;
 
     os_io_write_barrier(ring->sring_tail, tail + 1);
 
@@ -196,19 +229,19 @@ i32 setup_server_socket(u32 port, u32 backlog) {
     i32 server_fd = os_socket_ipv4();
     if (server_fd < 0) {
         printf("ERROR - socket failed: %d\n", server_fd);
-        return 1;
+        return -1;
     }
 
     i32 bind_result = os_bind_ipv4(server_fd, port);
     if (bind_result < 0) {
         printf("ERROR - bind failed: %d\n", bind_result);
-        return 1;
+        return -1;
     }
 
     i32 listen_result = os_listen(server_fd, backlog);
     if (listen_result < 0) {
         printf("ERROR - listen failed: %d\n", listen_result);
-        return 1;
+        return -1;
     }
 
     return server_fd;
@@ -218,56 +251,51 @@ void entrypoint(Arena *arena, i32 server_fd) {
     struct io_uring_cqe *cqe;
     struct IOUringContext ring;
 
+    // TODO: This will be a problem with io_uring async - probably needs to be baked into the request
+    SockAddrIPv4 client_addr = {0};
+    u64 client_addr_len = sizeof(client_addr);
+
     i32 result = setup_io_uring(&ring);
 
-    // server loop...
+    submit_accept(arena, &ring, server_fd, &client_addr, &client_addr_len);
+
     for (;;) {
         i32 result = io_uring_wait_cqe(&ring, &cqe);
+        struct Request *request = (struct Request *)cqe->user_data;
 
-        // handle accept, read, write
-        // We need to bookkeep some kind of struct that manages
-        // the lifetime of a request..
+        switch (request->event_type) {
+        case EventType_Accept:
+            printf("Received accept!\n");
+            submit_accept(arena, &ring, server_fd, &client_addr, &client_addr_len);
+            request->event_type = EventType_Read;
+            request->client_socket = cqe->res;
+            submit_read(&ring, request);
+            break;
+        case EventType_Read:
+            printf("Received read!\n");
+            request->event_type = EventType_Write;
+            submit_write(&ring, request);
+            // TODO: process request header
+            break;
+        case EventType_Write:
+            printf("Received write!\n");
+            os_close(request->client_socket);
+            break;
+        default:
+            printf("receives something else\n");
+            break;
+        };
     }
 }
 
 i32 main(void) {
-    struct io_uring_cqe *cqe;
-    struct IOUringContext ring;
+    Arena *arena = arena_alloc(1024 * 1024);
 
-    printf("setting up uring\n");
-    i32 result = setup_io_uring(&ring);
-    if (result != 0) {
-        printf("ERROR: uring setup failed\n");
-    }
+    u32 port = 8081;
+    u32 backlog = 3;
+    i32 server_fd = setup_server_socket(port, backlog);
 
-    char buff[256];
-    memset(buff, 0, 256);
-
-    submit_read(&ring, buff);
-
-    result = io_uring_wait_cqe(&ring, &cqe);
-
-    printf("Buffer contains: %s\n", buff);
-
-    // Arena *arena = arena_alloc(1024 * 1024);
-    //
-    // u32 port = 8080;
-    // u32 backlog = 3;
-    // i32 server_fd = setup_server_socket(port, backlog);
-    //
-    // // entrypoint(arena, server_fd);
-    //
-    // printf("accept\n");
-    // i32 client_fd = os_accept(server_fd);
-    // if (client_fd < 0) {
-    //     printf("accept failed: %d\n", client_fd);
-    //     return 1;
-    // }
-    // printf("client_fd: %d\n", client_fd);
-    //
-    // printf("write\n");
-    // Buffer output = String8("Hello, world\n");
-    // os_write(client_fd, output);
+    entrypoint(arena, server_fd);
 
     return 0;
 }
