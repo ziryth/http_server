@@ -1,6 +1,7 @@
 #include "base_memory.h"
 #include "base_core.h"
-#include <stdio.h>
+#include "base_log.h"
+#include "base_os_linux.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -109,6 +110,6 @@ void arena_clear(Arena *arena) {
 }
 
 void arena_error(u8 *message) {
-    fprintf(stderr, "ERROR: %s\n", message);
-    exit(1);
+    log_error((char *)message);
+    os_abort(1);
 }

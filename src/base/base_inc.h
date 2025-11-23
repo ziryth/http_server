@@ -4,7 +4,8 @@
 
 #include "base_buffer.h"
 #include "base_core.h"
+#include "base_log.h"
 #include "base_memory.h"
-#include "base_os_linux.h" 
+#include "base_os_linux.h"
 
 #endif // BASE_INC_H
