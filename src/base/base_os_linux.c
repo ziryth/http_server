@@ -3,6 +3,22 @@
 #include "base_log.h"
 
 //////////////////////////////
+//  Handle
+
+OS_Handle os_handle_from_fd(u32 fd) {
+    OS_Handle handle = {0};
+    handle.value = fd;
+
+    return handle;
+}
+
+OS_Handle os_handle_zero() {
+    OS_Handle handle = {0};
+
+    return handle;
+}
+
+//////////////////////////////
 //  Process
 
 void os_abort(i32 exit_code) {
@@ -18,70 +34,68 @@ u16 network_byte_order(u16 n) {
     return result;
 }
 
-i32 os_socket_ipv4() {
-    i32 result = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);
+OS_Handle os_socket_ipv4() {
+    OS_Handle handle = {0};
 
-    return result;
+    i32 fd = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);
+
+    if (fd != -1) {
+        handle.value = fd;
+    }
+
+    return handle;
 }
 
-i32 os_bind_ipv4(u32 sock_fd, u16 port) {
+b32 os_bind_ipv4(OS_Handle handle, u16 port) {
+    b32 ok = 0;
+
+    if (handle.value == 0) {
+        return ok;
+    }
+
+    u32 fd = handle.value;
     SockAddrIPv4 addr = {};
 
     addr.family = AF_INET;
     addr.port = network_byte_order(port);
     addr.addr = 0;
 
-    i32 result = syscall3(SYS_BIND, sock_fd, (u64)&addr, sizeof(addr));
+    i32 result = syscall3(SYS_BIND, fd, (u64)&addr, sizeof(addr));
 
-    return result;
-}
-
-i32 os_listen(u32 sock_fd, u32 backlog) {
-    i32 result = syscall2(SYS_LISTEN, sock_fd, backlog);
-
-    return result;
-}
-
-i32 os_bind_and_listen(u32 port, u32 backlog) {
-    i32 server_fd = os_socket_ipv4();
-    if (server_fd < 0) {
-        log_error("socket failed: %d\n", server_fd);
-        return -1;
+    if (result >= 0) {
+        ok = 1;
     }
 
-    i32 bind_result = os_bind_ipv4(server_fd, port);
-    if (bind_result < 0) {
-        log_error("bind failed: %d\n", bind_result);
-        return -1;
+    return ok;
+}
+
+b32 os_listen(OS_Handle handle, u32 backlog) {
+    b32 ok = 0;
+
+    if (handle.value == 0) {
+        return ok;
     }
 
-    i32 listen_result = os_listen(server_fd, backlog);
-    if (listen_result < 0) {
-        log_error("listen failed: %d\n", listen_result);
-        return -1;
+    i32 result = syscall2(SYS_LISTEN, handle.value, backlog);
+
+    if (result >= 0) {
+        ok = 1;
     }
 
-    return server_fd;
+    return ok;
 }
 
-i32 os_accept(u32 sock_fd) {
-    i32 result = syscall3(SYS_ACCEPT, sock_fd, 0, 0);
+b32 os_close(OS_Handle handle) {
+    u32 fd = handle.value;
+    b32 ok = 0;
 
-    return result;
-}
-
-i32 os_write(i32 sock_fd, Buffer buffer) {
-    u64 str_ptr = (u64)buffer.data;
-    u64 len = buffer.len;
-    i32 result = syscall3(SYS_WRITE, sock_fd, str_ptr, len);
-
-    return result;
-}
-
-i32 os_close(i32 fd) {
     i32 result = syscall1(SYS_CLOSE, fd);
 
-    return result;
+    if (result != -1) {
+        ok = 1;
+    }
+
+    return ok;
 }
 
 //////////////////////////////

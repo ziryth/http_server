@@ -26,6 +26,17 @@
 #define SOCK_STREAM 1
 
 //////////////////////////////
+//  Handle
+
+typedef struct OS_Handle OS_Handle;
+struct OS_Handle {
+    u64 value;
+};
+
+OS_Handle os_handle_from_fd(u32 fd);
+OS_Handle os_handle_zero();
+
+//////////////////////////////
 //  Process
 
 void os_abort(i32 exit_code);
@@ -41,13 +52,12 @@ struct SockAddrIPv4 {
     u8 zero[8];
 };
 
-i32 os_socket_ipv4();
-i32 os_bind_ipv4(u32 sock_fd, u16 port);
-i32 os_listen(u32 sock_fd, u32 backlog);
-i32 os_accept(u32 sock_fd);
-i32 os_write(i32 sock_fd, Buffer buffer);
-i32 os_close(i32 fd);
-i32 os_bind_and_listen(u32 port, u32 backlog);
+OS_Handle os_socket_ipv4();
+b32 os_bind_ipv4(OS_Handle handle, u16 port);
+b32 os_listen(OS_Handle handle, u32 backlog);
+// i32 os_accept(u32 sock_fd);
+// i32 os_write(i32 sock_fd, Buffer buffer);
+b32 os_close(OS_Handle handle);
 
 //////////////////////////////
 //  IO
