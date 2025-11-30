@@ -3,7 +3,8 @@
 
 #include "base_core.h"
 
-#define RESERVE_SIZE 64ULL * 1024 * 1024 * 1024
+#define PAGE_SIZE 4096
+#define ARENA_HEADER_SIZE 128
 
 //////////////////////////////
 // Primitives
@@ -19,19 +20,24 @@ void mem_error(u8 *message);
 //////////////////////////////
 // Arena
 
-typedef struct {
-    void *base_ptr;
-    u64 size;
+typedef struct Arena Arena;
+struct Arena {
+    Arena *prev;
+    Arena *current;
+    void *base_pointer;
+    u64 reserve_size;
+    u64 commit_size;
     u64 pos;
     u64 committed;
-} Arena;
+    b32 is_chained;
+};
 
-Arena *arena_alloc(u64 initial_size);
+Arena *arena_alloc(u64 reserve_size, u64 commit_size, void *optional_buffer, b32 is_chained);
 
 void arena_release(Arena *arena);
 
-void *arena_push(Arena *arena, u64 size);
-void *arena_push_zero(Arena *arena, u64 size);
+void *arena_push(Arena *arena, u64 size, u64 align);
+void *arena_push_zero(Arena *arena, u64 size, u64 align);
 
 #define push_array(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count))
 #define push_array_zero(arena, type, count) (type *)arena_push_zero((arena), sizeof(type) * (count))

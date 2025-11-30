@@ -34,7 +34,7 @@ u16 network_byte_order(u16 n) {
     return result;
 }
 
-OS_Handle os_socket_ipv4() {
+OS_Handle os_socket_ipv4(void) {
     OS_Handle handle = {0};
 
     i32 fd = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);

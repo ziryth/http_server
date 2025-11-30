@@ -77,7 +77,7 @@ b32 submit_accept(Arena *arena,
     u32 tail;
     b32 ok = 0;
     IO_Uring_Submission_Entry *sqe = os_io_uring_get_sqe(ring, &tail);
-    struct Request *request = arena_push(arena, sizeof(struct Request));
+    struct Request *request = arena_push(arena, sizeof(struct Request), 8);
     request->request_buffer_count = REQUEST_BUFFER_SIZE;
     request->event_type = EventType_Accept;
     request->client_address_length = sizeof(SockAddrIPv4);
@@ -180,7 +180,7 @@ OS_Handle bind_and_listen(u32 port, u32 backlog) {
 }
 
 i32 main(void) {
-    Arena *arena = arena_alloc(32 * megabyte);
+    Arena *arena = arena_alloc(8 * megabyte, 64 * kilobyte, 0, 1);
 
     u32 port = 8080;
     u32 backlog = 3;

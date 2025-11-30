@@ -30,9 +30,17 @@ typedef uint32_t b32;
 #define global static
 #define local static
 
+#define AlignPow2(x, b) (((x) + (b) - 1) & (~((b) - 1)))
+
+#define Min(a, b) (((a) < (b)) ? (a) : (b))
+#define Max(a, b) (((a) > (b)) ? (a) : (b))
+#define ClampTop(x, top) Min((x), (top))
+#define ClampBottom(x, bottom) Max((x), (bottom))
+
 //////////////////////////////
 // Basic Constants
 
+global u64 kilobyte = 1024;
 global u64 megabyte = 1024 * 1024;
 global u64 gigabyte = 1024 * 1024 * 1024;
 

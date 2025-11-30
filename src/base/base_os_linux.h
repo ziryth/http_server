@@ -1,4 +1,3 @@
-
 #ifndef BASE_OS_LINUX_H
 #define BASE_OS_LINUX_H
 
@@ -34,7 +33,7 @@ struct OS_Handle {
 };
 
 OS_Handle os_handle_from_fd(u32 fd);
-OS_Handle os_handle_zero();
+OS_Handle os_handle_zero(void);
 
 //////////////////////////////
 //  Process
@@ -52,11 +51,9 @@ struct SockAddrIPv4 {
     u8 zero[8];
 };
 
-OS_Handle os_socket_ipv4();
+OS_Handle os_socket_ipv4(void);
 b32 os_bind_ipv4(OS_Handle handle, u16 port);
 b32 os_listen(OS_Handle handle, u32 backlog);
-// i32 os_accept(u32 sock_fd);
-// i32 os_write(i32 sock_fd, Buffer buffer);
 b32 os_close(OS_Handle handle);
 
 //////////////////////////////
