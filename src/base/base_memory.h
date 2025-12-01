@@ -28,6 +28,7 @@ struct Arena {
     u64 reserve_size;
     u64 commit_size;
     u64 pos;
+    u64 base_pos;
     u64 committed;
     b32 is_chained;
 };
@@ -39,15 +40,14 @@ void arena_release(Arena *arena);
 void *arena_push(Arena *arena, u64 size, u64 align);
 void *arena_push_zero(Arena *arena, u64 size, u64 align);
 
-#define push_array(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count))
-#define push_array_zero(arena, type, count) (type *)arena_push_zero((arena), sizeof(type) * (count))
+#define push_array(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count), sizeof(type))
+#define push_array_zero(arena, type, count) (type *)arena_push_zero((arena), sizeof(type) * (count), sizeof(type))
 #define push_struct(arena, type) push_array((arena), (type), 1)
 #define push_struct_zero(arena, type) push_array_zero((arena), (type), 1)
 
 void arena_pop(Arena *arena, u64 size);
 void arena_pop_to(Arena *arena, u64 pos);
-u64 arena_get_pos(Arena *arena);
+u64 arena_pos(Arena *arena);
 void arena_clear(Arena *arena);
-void arena_error(u8 *message);
 
 #endif // BASE_MEMORY_H
