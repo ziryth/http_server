@@ -20,10 +20,12 @@ void mem_error(u8 *message);
 //////////////////////////////
 // Arena
 
+typedef struct Arena Scratch;
 typedef struct Arena Arena;
 struct Arena {
-    Arena *prev;
     Arena *current;
+    Arena *prev;
+    Arena *next_free;
     void *base_pointer;
     u64 reserve_size;
     u64 commit_size;
@@ -32,6 +34,12 @@ struct Arena {
     u64 committed;
     b32 is_chained;
 };
+
+// typedef struct Scratch Scratch;
+// struct Scratch {
+//     Scratch *next;
+//     Arena *arena;
+// };
 
 Arena *arena_alloc(u64 reserve_size, u64 commit_size, void *optional_buffer, b32 is_chained);
 

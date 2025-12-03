@@ -59,6 +59,8 @@ Arena *arena_alloc(u64 reserve_size, u64 commit_size, void *optional_buffer, b32
 
     Arena *arena = (Arena *)base_pointer;
     arena->current = arena;
+    arena->prev = 0;
+    arena->next_free = 0;
     arena->base_pointer = base_pointer;
     arena->pos = ARENA_HEADER_SIZE;
     arena->reserve_size = reserve_size;
@@ -66,7 +68,6 @@ Arena *arena_alloc(u64 reserve_size, u64 commit_size, void *optional_buffer, b32
     arena->is_chained = is_chained;
     arena->committed = commit_size;
     arena->base_pos = 0;
-    arena->prev = 0;
 
     return arena;
 }
