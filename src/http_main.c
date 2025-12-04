@@ -1,4 +1,5 @@
 #include "base/base_inc.h"
+#include "base/base_memory.h"
 #include "base/base_os_linux.h"
 #include "base/base_thread.h"
 
@@ -13,27 +14,32 @@ enum EventType {
 struct Request {
     enum EventType event_type;
 
+    Scratch *scratch_arena;
+
     OS_Handle client_handle;
     SockAddrIPv4 client_address;
     u64 client_address_length;
 
-    u32 request_buffer_count;
-    u8 request_buffer[REQUEST_BUFFER_SIZE];
-
-    u32 response_buffer_count;
-    u8 response_buffer[REQUEST_BUFFER_SIZE];
+    Buffer request_buffer;
+    Buffer response_buffer;
 };
 
 b32 submit_read(ThreadContext *context, struct Request *request) {
     u32 tail;
     b32 ok = 0;
+    Scratch *scratch = request->scratch_arena;
     IO_Uring_Submission_Entry *sqe = os_io_uring_get_sqe(&context->ring, &tail);
+
+    Buffer request_buffer = {0};
+    request_buffer.data = arena_push(scratch, REQUEST_BUFFER_SIZE, 8);
+    request_buffer.len = REQUEST_BUFFER_SIZE;
+    request->request_buffer = request_buffer;
 
     os_io_uring_prep_sqe(sqe, IORING_OP_READ);
 
     sqe->fd = request->client_handle.value;
-    sqe->addr = (unsigned long)request->request_buffer;
-    sqe->len = request->request_buffer_count;
+    sqe->addr = (u64)request->request_buffer.data;
+    sqe->len = request->request_buffer.len;
     sqe->off = -1;
     sqe->user_data = (u64)request;
 
@@ -56,8 +62,8 @@ b32 submit_write(ThreadContext *context, struct Request *request) {
     os_io_uring_prep_sqe(sqe, IORING_OP_WRITE);
 
     sqe->fd = request->client_handle.value;
-    sqe->addr = (unsigned long)request->response_buffer;
-    sqe->len = request->response_buffer_count;
+    sqe->addr = (u64)request->response_buffer.data;
+    sqe->len = request->response_buffer.len;
     sqe->off = -1;
     sqe->user_data = (u64)request;
 
@@ -76,10 +82,11 @@ b32 submit_accept(ThreadContext *context) {
     u32 tail;
     b32 ok = 0;
     IO_Uring_Submission_Entry *sqe = os_io_uring_get_sqe(&context->ring, &tail);
-    struct Request *request = arena_push(context->permanent_arena, sizeof(struct Request), 8);
-    request->request_buffer_count = REQUEST_BUFFER_SIZE;
+    Scratch *scratch = thread_scratch_alloc(context);
+    struct Request *request = arena_push(scratch, sizeof(struct Request), 8);
     request->event_type = EventType_Accept;
     request->client_address_length = sizeof(SockAddrIPv4);
+    request->scratch_arena = scratch;
 
     os_io_uring_prep_sqe(sqe, IORING_OP_ACCEPT);
 
@@ -90,9 +97,9 @@ b32 submit_accept(ThreadContext *context) {
 
     os_io_write_barrier(context->ring.sring_tail, tail + 1);
 
-    int ret = os_io_uring_enter(context->ring.ring_fd, 1, 0, 0);
+    u32 result = os_io_uring_enter(context->ring.ring_fd, 1, 0, 0);
 
-    if (ret >= 0) {
+    if (result >= 0) {
         ok = 1;
     }
 
@@ -100,18 +107,17 @@ b32 submit_accept(ThreadContext *context) {
 }
 
 void handle_request(ThreadContext *context, struct Request *request) {
-    const char *http_response =
+    Buffer http_response = str8(
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: 12\r\n"
         "Connection: close\r\n"
         "\r\n"
-        "Hello World!";
+        "Hello World!");
 
-    log_info("GOT REQUEST: %s\n", request->request_buffer);
+    request->response_buffer = http_response;
 
-    memcpy(request->response_buffer, http_response, strlen(http_response));
-    request->response_buffer_count = strlen(http_response);
+    log_info("GOT REQUEST: %s\n", request->request_buffer.data);
 
     submit_write(context, request);
 }
@@ -140,23 +146,20 @@ void entrypoint(u32 thread_id, OS_Handle server_handle) {
 
         switch (request->event_type) {
         case EventType_Accept:
-            log_info("Received accept - %d \n", request->client_address.addr);
             submit_accept(context);
             request->event_type = EventType_Read;
             request->client_handle = os_handle_from_fd(cqe->res);
             submit_read(context, request);
             break;
         case EventType_Read:
-            log_info("Received read!\n");
             request->event_type = EventType_Write;
             handle_request(context, request);
             break;
         case EventType_Write:
-            log_info("Received write!\n");
             os_close(request->client_handle);
+            thread_scratch_release(context, request->scratch_arena);
             break;
         default:
-            log_info("receives something else\n");
             break;
         };
     }

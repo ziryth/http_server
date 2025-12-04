@@ -16,4 +16,7 @@ struct ThreadContext {
 ThreadContext *thread_context_alloc(u32 thread_id);
 void thread_context_release(ThreadContext *context);
 
+Scratch *thread_scratch_alloc(ThreadContext *context);
+void thread_scratch_release(ThreadContext *context, Scratch *scratch);
+
 #endif // BASE_THREAD_H
