@@ -1,8 +1,8 @@
 #ifndef BASE_OS_LINUX_H
 #define BASE_OS_LINUX_H
 
-#include "base_buffer.h"
 #include "base_core.h"
+#include "base_string.h"
 
 #include "linux/io_uring.h"
 #include <stdlib.h>

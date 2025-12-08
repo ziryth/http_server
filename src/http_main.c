@@ -1,6 +1,7 @@
 #include "base/base_inc.h"
 #include "base/base_memory.h"
 #include "base/base_os_linux.h"
+#include "base/base_string.h"
 #include "base/base_thread.h"
 
 #define REQUEST_BUFFER_SIZE 8192
@@ -20,8 +21,8 @@ struct Request {
     SockAddrIPv4 client_address;
     u64 client_address_length;
 
-    Buffer request_buffer;
-    Buffer response_buffer;
+    String8 request_buffer;
+    String8 response_buffer;
 };
 
 b32 submit_read(ThreadContext *context, struct Request *request) {
@@ -30,7 +31,7 @@ b32 submit_read(ThreadContext *context, struct Request *request) {
     Scratch *scratch = request->scratch_arena;
     IO_Uring_Submission_Entry *sqe = os_io_uring_get_sqe(&context->ring, &tail);
 
-    Buffer request_buffer = {0};
+    String8 request_buffer = {0};
     request_buffer.data = arena_push(scratch, REQUEST_BUFFER_SIZE, 8);
     request_buffer.len = REQUEST_BUFFER_SIZE;
     request->request_buffer = request_buffer;
@@ -107,7 +108,22 @@ b32 submit_accept(ThreadContext *context) {
 }
 
 void handle_request(ThreadContext *context, struct Request *request) {
-    Buffer http_response = str8(
+    // TODO: parser the request: METHOD, PATH, HTTPVER
+
+    String8 req = request->request_buffer;
+
+    String8 method = str8_read_to(&req, " ");
+    String8 path = str8_read_to(&req, " ");
+    String8 http_version = str8_read_to(&req, " ");
+
+    if (str8_are_equal(method, str8("GET"))) {
+
+        log_info("%.*s: %.*s\n", str8_expand(method), str8_expand(path));
+    } else {
+        log_info("METHOD NOT IMPLEMENTED\n");
+    }
+
+    String8 http_response = str8(
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: 12\r\n"
@@ -117,7 +133,7 @@ void handle_request(ThreadContext *context, struct Request *request) {
 
     request->response_buffer = http_response;
 
-    log_info("GOT REQUEST: %s\n", request->request_buffer.data);
+    // log_info("GET: %s\n", request->request_buffer.data);
 
     submit_write(context, request);
 }
